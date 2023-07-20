@@ -1,0 +1,33 @@
+version: '3.1'
+
+services:
+  mongo:
+    image: mongo:4.4.6
+    container_name: "MongoDBContainer"
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+    volumes:
+      - './dockervolume/mongodb:/data/db'
+
+  weather-logger:
+    build: 
+      context: ./
+      dockerfile: weather-logger-dockerfile
+    container_name: "WeatherLoggerContainer"
+    restart: always
+    environment:
+      DB_HOST: mongo
+      DB_PORT: 27017
+      DB_USERNAME: root
+      DB_PASSWORD: example
+      DB_DATABASE: WeatherDB
+      DB_COLLECTION: WeatherReports
+    volumes:
+      - './datesToObserve.csv:/datesToObserve.csv'
+    image: registry.bitriderz.com/onboard/weather-logger/boty-weather-logger:latest # This is the name of the image that will be created
+
+## docker-compose -f "weather-logger-&-db-dockercompose.yml" up -d
+## docker login registry.bitriderz.com -u botond.vasvari@bitriderz.com
+## docker push registry.bitriderz.com/onboard/weather-logger/boty-weather-logger:latest

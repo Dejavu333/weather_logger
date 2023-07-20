@@ -1,0 +1,220 @@
+apiVersion: v1
+kind: Service           # which kind of kubernetes API we want to use
+metadata:               # metadata of the service
+  name: mongodb-dns     # DNS name for the service 
+spec:                   # specification of the service
+  selector:             # selector defines how the Service should discover the Pods it will forward traffic to. In this case, it will look for Pods with the app: mongodb label
+    fowardHere: mongodb-pod-label
+  ports:                # ports specifies the port mapping for the Service. In this case, it maps port 27017 to the Pods selected by the selector
+    - name: mongodb     # port name
+      protocol: TCP     # protocol for the service
+      port: 27017       # port for the service
+      targetPort: 27017 # port for the pods selected by the selector
+  type: ClusterIP       # type of the service, ClusterIP is the default type of service, it exposes the service on a cluster-internal IP. This means that the service is only accessible from within the cluster. This is the default type of service.
+
+
+---
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-deployment
+spec:                  # specification of the deployment
+  replicas: 1          # number of pods to create
+  selector:            # selector defines how the Deployment finds which Pods to manage. In this case, it will look for Pods with the app: mongodb label
+    matchLabels:      
+      manageMe: mongodb-pod-label
+  template:            # template defines the Pods that the Deployment will create
+    metadata:
+      labels:
+        manageMe: mongodb-pod-label
+        fowardHere: mongodb-pod-label
+    spec:              # specification of the pod
+      containers:      # containers specifies the containers that will run in the Pod
+        - name: mongodb-container # name of the container
+          image: mongo:4.4.6
+          env:         # environment variables for the container
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: root
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: example
+          volumeMounts: # mountPath set to /data/db within the container. This means that the contents of the volume will be accessible within the container at the path /data/db
+            - name: mongo-storage   # mongo-storage is the name of the volume that is mapped to the /data/db directory within the container
+              mountPath: /data/db   # to where is the volume mapped in the container
+          ports:
+            - name: mongodb
+              containerPort: 27017
+      volumes:
+        - name: mongo-storage # mongo-storage is the name of the volume that is mapped to the /data/db directory within the container, we add where its located on the host machine here
+          hostPath:
+            path: /dockervolume/mongodb # to where is the volume mapped on the host machine
+            # # The hostPath volume source is used to mount a directory on the host machine into the container as a volume.
+            # # In this example, the hostPath volume source
+            # # is set to the directory /dockervolume/mongodb
+            # # on the host machine, which means that any data
+            # # written to the /data/db directory within the
+            # # container will be persisted on the host machine,
+            # # allowing the data to survive container restarts or
+            # # even container deletion.
+
+
+# # ConfigMap is designed to be shared between multiple pods, while a Volume is typically used to
+# # provide storage that is specific to a single pod.
+# # A ConfigMap can be used to store configuration data that
+# # is common to multiple pods, allowing the same configuration to
+# # be used by all the pods that need it. This can help to simplify the management
+# # of the cluster and ensure that all the pods are using the same configuration.
+# # A Volume, on the other hand, is typically used to provide storage that is specific to a single pod,
+# # such as a database or file system. The data stored in the volume is only accessible by the pod that it is mounted to,
+# # and cannot be shared with other pods.
+
+
+---
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weatherlogger-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      manageMe: weatherlogger-pod-label
+  template:
+    metadata:
+      labels:
+        manageMe: weatherlogger-pod-label
+    spec:
+      containers:
+        - name: weatherlogger-container # list of containers belonging to the pod so - name: another-container
+          # image: workspace-weather-logger # name of the image built from weatherlogger go app (but only if we use miniKube load otherwise we must push the image to docker hub(or to another registry) and use the image name from there)
+          #*instead--->
+          image: registry.bitriderz.com/onboard/weather-logger/boty-weather-logger:latest # name of the image built from weatherlogger go app
+          imagePullPolicy: Always # this is the default value
+          
+        # env:               #! it is wiser to use a ConfigMap (instead of hardcode env variables) to store the data that can change because it is easier to update the ConfigMap than redeploy
+        #   - name: DB_HOST
+        #     value: mongodb
+        #   - name: DB_PORT
+        #     value: "27017"
+        #   - name: DB_USERNAME
+        #     value: root
+        #   - name: DB_PASSWORD
+        #     value: example
+        #   - name: DB_DATABASE
+        #     value: WeatherDB
+        #   - name: DB_COLLECTION
+        #     value: WeatherReports
+# # The env field in the Kubernetes YAML file is used to specify environment
+# # variables directly in the container, while the envFrom field is used to
+# # set environment variables from ConfigMaps or Secrets.
+#*instead--->
+          envFrom:    
+            - configMapRef:
+              name: weatherlogger-config # confidential data is stored in a Secret, and non-confidential data is stored in a ConfigMap
+            - secretRef:
+              name: weatherlogger-secret
+    #     volumeMounts:         #! it is wiser to use a ConfigMap to store the data that is common to multiple pods instead of using a volume
+    #       - name: data
+    #         mountPath: /datesToObserve.csv
+    # volumes:
+    #   - name: data
+    #     hostPath:
+    #       path: /datesToObserve.csv
+#*instead--->
+          # - configMapRef:
+          #     name: dates-to-observe #! dates-to-observe is not an environment variable, but a file that contains the dates to observe, and is set as a volume in the container, so this is not the right way to do it
+#*instead--->
+          volumeMounts:
+              - name: data
+                mountPath: /datesToObserve.csv # map the volume to the /datesToObserve.csv path in the container
+
+      volumes:
+        - name: data  # but the volume will be a ConfigMap and not a hostPath
+          configMap:
+            name: dates-to-observe
+      imagePullSecrets:
+          - name: gitlab-registry-secret # name of the secret that contains the credentials to access the registry
+
+
+    # # This code adds a new volume called datestoobserve to your
+    # # container and mounts the ConfigMap datestoobserve-config
+    # # as a volume in your container at the /datestoobserve.csv path.
+
+
+---
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weatherlogger-config
+data:
+  DB_HOST: mongodb-dns
+  DB_PORT: "27017"
+  # DB_USERNAME: root   #! it is wiser to use a Secret to store the data that is sensitive
+  # DB_PASSWORD: example
+  DB_DATABASE: WeatherDB
+  DB_COLLECTION: WeatherReports
+
+
+---
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dates-to-observe
+data:
+  datesToObserve.csv: |-
+    2023-02-18,2023-02-15,2023-02-16,2023-02-17,2023-02-04
+
+
+# # datesToObserve.csv after the colon represents the key name of the data in the ConfigMap.
+# # When you create a ConfigMap, you can set key-value pairs, where the key is the name you
+# # give to the data, and the value is the content of the data. In this case, the key is
+# # datesToObserve.csv, and the value is the contents of the datesToObserve.csv
+
+
+---
+
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: weatherlogger-secret
+data:
+  DB_USERNAME: cm9vdA== # base64 encoded value of root
+  DB_PASSWORD: ZXhhbXBsZQ== # base64 encoded value of example
+
+
+---
+
+
+## echo '{"auths":{"registry.bitriderz.com":{"username":"betsandodds-gitlab-deploy","password":"xxxxxxxxx"}}}' | base64
+## eyJhdXRocyI6eyJyZWdpc3RyeS5iaXRyaWRlcnouY29tIjp7InVzZXJuYW1lIjoiZ2l0bGFiLXJlZ2lzdHJ5IiwicGFzc3dvcmQiOiJLWUc4Z2lfWHpIMmstb0t0VV9jUCJ9fX0=
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-registry-secret
+data:
+  .dockerconfigjson: |-
+    eyJhdXRocyI6eyJyZWdpc3RyeS5iaXRyaWRlcnouY29tIjp7InVzZXJuYW1lIjoiZ2l0bGFiLXJlZ2lzdHJ5IiwicGFzc3dvcmQiOiJLWUc4Z2lfWHpIMmstb0t0VV9jUCJ9fX0=
+type: kubernetes.io/dockerconfigjson
+# The . prefix is used to ensure that the data in a Secret is interpreted correctly by Kubernetes, and to avoid any issues with special characters in the value.
+
+
+
+# minikube start --driver=docker           (minikube)
+# or go install sigs.k8s.io/kind@v0.17.0   (kind)
+# kind create cluster
+
+# then we can use kubectl commands
+# kubectl apply -f "weather-logger-&-db-kubernetesconfig.yml"
+# kubectl get deployments
+# kubectl get services   
+# kubectl get pods
+# kubectl logs weatherlogger-deployment-554866989c-xlpzh

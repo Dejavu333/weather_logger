@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: Service           
+metadata:               
+  name: mongodb-service
+spec:
+  type: ClusterIP         
+  selector:              
+    fowardHere: mongodb-pod-label
+  ports:               
+    - name: mongodb     
+      protocol: TCP 
+      port: 27017        
+      targetPort: 27017
+
+
+---
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-deployment
+spec:                   
+  replicas: 1          
+  selector:           
+    matchLabels:      
+      manageMe: mongodb-pod-label
+  template:            
+    metadata:
+      labels:
+        manageMe: mongodb-pod-label
+        fowardHere: mongodb-pod-label
+    spec:            
+      containers:      
+        - name: mongodb-container 
+          image: mongo:4.4.6
+          env:         
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: root
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: example
+          volumeMounts: 
+            - name: mongo-storage   
+              mountPath: /data/db
+          ports:
+            - name: mongodb
+              containerPort: 27017
+      volumes:
+        - name: mongo-storage
+          hostPath:
+            path: /dockervolume/mongodb  
+
+
+---
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weatherlogger-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      manageMe: weatherlogger-pod-label
+
+  template:
+    metadata:
+      labels:
+        manageMe: weatherlogger-pod-label     
+    spec:
+      containers:
+        - name: weatherlogger-container
+          image: registry.bitriderz.com/onboard/weather-logger/boty-weather-logger:latest
+          imagePullPolicy: Always
+          
+          envFrom:    
+            - configMapRef:
+                name: weatherlogger-config 
+            - secretRef:
+                name: weatherlogger-secret
+          volumeMounts:
+              - name: data
+                mountPath: /datesToObserve.csv 
+
+      volumes:
+        - name: data  
+          configMap:
+            name: dates-to-observe
+      imagePullSecrets:
+        - name: gitlab-registry-secret
+
+
+---
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weatherlogger-config
+data:
+  DB_HOST: mongodb-service
+  DB_PORT: "27017"
+  # DB_USERNAME: root
+  # DB_PASSWORD: example
+  DB_DATABASE: WeatherDB
+  DB_COLLECTION: WeatherReports
+
+
+---
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dates-to-observe
+data:
+  datesToObserve.csv: |-
+    2023-02-18,2023-02-15,2023-02-16,2023-02-17,2023-02-04
+
+
+---
+
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: weatherlogger-secret
+data:
+  DB_USERNAME: cm9vdA== # base64 encoded value of root
+  DB_PASSWORD: ZXhhbXBsZQ== # base64 encoded value of example
+
+
+---
+
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-registry-secret
+data:
+  .dockerconfigjson: |-
+    eyJhdXRocyI6eyJyZWdpc3RyeS5iaXRyaWRlcnouY29tIjp7InVzZXJuYW1lIjoiZ2l0bGFiLXJlZ2lzdHJ5IiwicGFzc3dvcmQiOiJLWUc4Z2lfWHpIMmstb0t0VV9jUCJ9fX0=
+type: kubernetes.io/dockerconfigjson
+

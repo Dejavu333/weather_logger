@@ -1,0 +1,22 @@
+# module name is 'workspace', 'main.go' is in 'workspace' folder, and it reads config from datesToObserve.csv and DBConfigMongo.json
+
+FROM golang:1.20.0-bullseye
+    WORKDIR /workspace
+
+    COPY . .
+
+    ENV DB_HOST = "localhost"
+    ENV DB_PORT = "27017"
+    ENV DB_USERNAME = "root"
+    ENV DB_PASSWORD = "example"
+    ENV DB_DATABASE = "WeatherDB"
+    ENV DB_COLLECTION = "WeatherReports"
+
+    VOLUME [ "/datesToObserve.csv" ]
+
+    RUN go mod download
+
+    RUN go build -o main .
+
+    CMD ["/workspace/main"]
+
